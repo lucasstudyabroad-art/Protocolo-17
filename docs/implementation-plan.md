@@ -35,4 +35,45 @@ gradle :pos-simulator:build
 
 Results and any fixes applied are recorded at the bottom of this file after each phase, per the "compile the affected module; run relevant tests; fix failures; update the coverage matrix; report" instruction.
 
-<!-- Phase results appended below as work proceeds -->
+## Phase results
+
+### Phase 3 + 4 (protocol core foundations + 19 message types)
+
+```
+gradle -c settings-core.gradle.kts :protocol-core:test
+```
+
+Result: **BUILD SUCCESSFUL**, all tests passed (foundations: LRC/frame codec/stream
+parser/field utils/MoneyParser, plus builder+parser+test for all 19 operations in the
+coverage matrix: Payment, Extended Payment, Refund, Close Session, Terminal Totals,
+Reversal, Card Verification, Run DLL, POS Status, TAG delivery/result, Last Result +
+response dispatcher, Receipt Mode, Send Ticket/Ticket Accumulator, Reprint Ticket,
+Pre-authorization, Incremental Authorization, Pre-authorization Closure, Retroactive
+Reversal). No failures on first full run after fixing a handful of test-fixture length
+bugs caught by the parsers' own length validation (e.g. manually-typed padded strings
+that were shorter than declared field length) during authoring.
+
+### Phase 5 (transport + transmission session)
+
+```
+gradle -c settings-core.gradle.kts :protocol-core:test
+```
+
+Added `TcpClientTransport` (raw `java.net.Socket`), `Ecr17TransmissionSession`
+(ACK/NAK/retry/uncertain-state state machine) and `Ecr17ResponseValidator`. First run
+surfaced 4 test-assertion bugs (not implementation bugs): the tests undercounted
+`sentFrames` by forgetting that the session also sends the ACK for the terminal's final
+response, not just retransmissions of the request. Fixed by asserting request-frame count
+(STX-prefixed frames only) separately from total frames sent. Re-run: **BUILD SUCCESSFUL**,
+137 tests, 0 failures.
+
+### Scope checkpoint
+
+Per direct user instruction mid-build: pausing the full 19-operation Android UI/Room/DataStore
+build-out to first land a minimal, working, end-to-end path — send a Basic Payment from the
+Buy screen and display the parsed response — with transaction history/persistence
+deliberately deferred. The full protocol-core (all 19 operations, framing, transport,
+transmission session) stays as built above; this checkpoint only affects the Android app
+layer scope for now.
+
+<!-- Further phase results appended below as work proceeds -->
