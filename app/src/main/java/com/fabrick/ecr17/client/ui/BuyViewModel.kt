@@ -1,7 +1,10 @@
 package com.fabrick.ecr17.client.ui
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.fabrick.ecr17.client.data.ConnectionConfig
+import com.fabrick.ecr17.client.data.ConnectionConfigStore
 import com.fabrick.ecr17.protocol.core.Ecr17Error
 import com.fabrick.ecr17.protocol.core.Ecr17OperationResult
 import com.fabrick.ecr17.protocol.core.MoneyParseResult
@@ -22,12 +25,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-/** Immutable UI state for the minimal Buy screen. No persistence yet — this is in-memory only. */
+/** Immutable UI state for the minimal Buy screen. Connection fields are persisted (DataStore); amount/result are not. */
 data class BuyUiState(
     val host: String = "",
     val port: String = "",
@@ -50,21 +54,68 @@ data class BuyUiState(
 
 /**
  * Drives the minimal "send a payment, show the response" flow directly against
- * `:protocol-core` (no Room/DataStore/history yet — that lands in a later phase).
+ * `:protocol-core` (no transaction history/Room yet — that lands in a later phase).
  *
- * Connection parameters are plain in-memory fields for now; every field must be filled in
- * by hand each time the app is reinstalled/restarted.
+ * The four connection fields (host/port/Terminal ID/Cash Register ID) are persisted via
+ * [ConnectionConfigStore] so they survive an app restart; everything else (amount, result)
+ * stays in-memory only.
  */
-class BuyViewModel : ViewModel() {
+class BuyViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val configStore = ConnectionConfigStore(application)
 
     private val _uiState = MutableStateFlow(BuyUiState())
     val uiState: StateFlow<BuyUiState> = _uiState.asStateFlow()
 
-    fun onHostChange(value: String) = _uiState.update { it.copy(host = value) }
-    fun onPortChange(value: String) = _uiState.update { it.copy(port = value.filter { c -> c.isDigit() }) }
-    fun onTerminalIdChange(value: String) = _uiState.update { it.copy(terminalId = value.filter { c -> c.isDigit() }.take(8)) }
-    fun onCashRegisterIdChange(value: String) = _uiState.update { it.copy(cashRegisterId = value.filter { c -> c.isDigit() }.take(8)) }
+    init {
+        viewModelScope.launch {
+            val saved = configStore.config.first()
+            _uiState.update {
+                it.copy(
+                    host = saved.host,
+                    port = saved.port,
+                    terminalId = saved.terminalId,
+                    cashRegisterId = saved.cashRegisterId,
+                )
+            }
+        }
+    }
+
+    fun onHostChange(value: String) {
+        _uiState.update { it.copy(host = value) }
+        persistConnectionConfig()
+    }
+
+    fun onPortChange(value: String) {
+        _uiState.update { it.copy(port = value.filter { c -> c.isDigit() }) }
+        persistConnectionConfig()
+    }
+
+    fun onTerminalIdChange(value: String) {
+        _uiState.update { it.copy(terminalId = value.filter { c -> c.isDigit() }.take(8)) }
+        persistConnectionConfig()
+    }
+
+    fun onCashRegisterIdChange(value: String) {
+        _uiState.update { it.copy(cashRegisterId = value.filter { c -> c.isDigit() }.take(8)) }
+        persistConnectionConfig()
+    }
+
     fun onAmountChange(value: String) = _uiState.update { it.copy(amountText = value) }
+
+    private fun persistConnectionConfig() {
+        val state = _uiState.value
+        viewModelScope.launch {
+            configStore.save(
+                ConnectionConfig(
+                    host = state.host,
+                    port = state.port,
+                    terminalId = state.terminalId,
+                    cashRegisterId = state.cashRegisterId,
+                ),
+            )
+        }
+    }
 
     fun onBuyClick() {
         val state = _uiState.value
