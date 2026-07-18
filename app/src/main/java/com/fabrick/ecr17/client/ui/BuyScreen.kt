@@ -11,6 +11,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -74,6 +75,21 @@ fun BuyScreen(viewModel: BuyViewModel = viewModel()) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth(),
         )
+
+        OutlinedButton(
+            onClick = viewModel::onTestConnectionClick,
+            enabled = state.canTestConnection,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(if (state.isTestingConnection) "Testing connection..." else "Test TCP Connection")
+        }
+        state.testConnectionResult?.let { text ->
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (state.testConnectionIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            )
+        }
 
         HorizontalDivider()
 

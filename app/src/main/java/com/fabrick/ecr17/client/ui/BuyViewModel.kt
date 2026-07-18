@@ -42,6 +42,9 @@ data class BuyUiState(
     val progressMessage: String? = null,
     val resultText: String? = null,
     val isError: Boolean = false,
+    val isTestingConnection: Boolean = false,
+    val testConnectionResult: String? = null,
+    val testConnectionIsError: Boolean = false,
 ) {
     val canBuy: Boolean
         get() = !isSending &&
@@ -50,6 +53,9 @@ data class BuyUiState(
             terminalId.length == 8 && terminalId.all { it.isDigit() } &&
             cashRegisterId.length == 8 && cashRegisterId.all { it.isDigit() } &&
             MoneyParser.parse(amountText) is MoneyParseResult.Valid
+
+    val canTestConnection: Boolean
+        get() = !isSending && !isTestingConnection && host.isNotBlank() && port.toIntOrNull() != null
 }
 
 /**
@@ -114,6 +120,47 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
                     cashRegisterId = state.cashRegisterId,
                 ),
             )
+        }
+    }
+
+    /**
+     * Verifies only that a raw TCP socket can be opened to host:port — no Protocol 17
+     * message is sent at all. Lets you isolate "can the phone reach the terminal on the
+     * network" from "does the terminal answer Protocol 17 messages" (an ACK timeout means
+     * the socket connected fine but the peer never acknowledged the framed message, which
+     * is a different problem than this check covers).
+     */
+    fun onTestConnectionClick() {
+        val state = _uiState.value
+        if (!state.canTestConnection) return
+        val port = state.port.toIntOrNull() ?: return
+
+        _uiState.update { it.copy(isTestingConnection = true, testConnectionResult = null, testConnectionIsError = false) }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val transport: PosSocketTransport = TcpClientTransport()
+            try {
+                transport.connect(state.host, port, connectTimeoutMs = 5000)
+                _uiState.update {
+                    it.copy(
+                        isTestingConnection = false,
+                        testConnectionResult = "Connected to ${state.host}:$port. " +
+                            "This only confirms the TCP socket opened — it does not send any Protocol 17 message " +
+                            "or confirm PAXTools/ECR is listening on this port.",
+                        testConnectionIsError = false,
+                    )
+                }
+            } catch (e: Ecr17TransportException) {
+                _uiState.update {
+                    it.copy(isTestingConnection = false, testConnectionResult = Ecr17Error.userMessage(e.error), testConnectionIsError = true)
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isTestingConnection = false, testConnectionResult = "Unexpected error: ${e.message}", testConnectionIsError = true)
+                }
+            } finally {
+                withContext(Dispatchers.IO) { transport.close() }
+            }
         }
     }
 
